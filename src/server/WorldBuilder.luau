@@ -1,275 +1,235 @@
 -- WorldBuilder.luau
--- BRAINROT NUSANTARA - builds the whole map out of Parts: ground, conveyor lane,
--- portal, 8 base plots, decorations and a SpawnLocation.
--- build() returns refs used by every other server module.
+-- Procedurally builds the ~1000x1000 stud DinoWorld: four wild zones, a
+-- river, a central camp with spawn + campfire + hatch pad, edge cliffs,
+-- and scattered gather nodes (BerryBush / WoodTree / StoneRock / DinoNest).
+
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local DinoData = require(ReplicatedStorage:WaitForChild("Shared", 10):WaitForChild("DinoData", 10))
 
 local WorldBuilder = {}
 
-local PLOT_COLORS = {
-	Color3.fromRGB(255, 120, 120),
-	Color3.fromRGB(120, 200, 255),
-	Color3.fromRGB(140, 255, 160),
-	Color3.fromRGB(255, 220, 110),
-	Color3.fromRGB(210, 140, 255),
-	Color3.fromRGB(255, 160, 90),
-	Color3.fromRGB(120, 255, 230),
-	Color3.fromRGB(255, 140, 200),
-}
+local function rgb(t)
+	return Color3.fromRGB(t[1], t[2], t[3])
+end
 
-local function part(parent, name, size, cframe, color, material)
+local function part(parent, name, size, position, color, material, collide)
 	local p = Instance.new("Part")
 	p.Name = name
 	p.Size = size
-	p.CFrame = cframe
+	p.Position = position
 	p.Color = color
 	p.Material = material or Enum.Material.SmoothPlastic
 	p.Anchored = true
-	p.TopSurface = Enum.SurfaceType.Smooth
-	p.BottomSurface = Enum.SurfaceType.Smooth
+	p.CanCollide = collide == true
 	p.Parent = parent
 	return p
 end
 
-local function makeLabel(parentPart, name, text, size, offset, textColor, bgTransparency)
+local function sign(parent, position, text, color)
+	local post = part(parent, "SignPost", Vector3.new(1, 7, 1), position + Vector3.new(0, 3.5, 0), Color3.fromRGB(110, 75, 45), Enum.Material.Wood, false)
+	local board = part(parent, "SignBoard", Vector3.new(14, 4, 0.6), position + Vector3.new(0, 8, 0), Color3.fromRGB(140, 100, 60), Enum.Material.Wood, false)
 	local gui = Instance.new("BillboardGui")
-	gui.Name = name
-	gui.Size = size or UDim2.fromOffset(220, 60)
-	gui.StudsOffset = offset or Vector3.new(0, 4, 0)
+	gui.Size = UDim2.fromOffset(320, 80)
 	gui.AlwaysOnTop = true
-	gui.Parent = parentPart
+	gui.Parent = board
 	local label = Instance.new("TextLabel")
-	label.Name = "Label"
-	label.Size = UDim2.fromScale(1, 1)
-	label.BackgroundTransparency = bgTransparency or 0.35
-	label.BackgroundColor3 = Color3.fromRGB(20, 20, 30)
+	label.Size = UDim2.new(1, 0, 1, 0)
+	label.BackgroundTransparency = 1
 	label.Text = text
-	label.TextColor3 = textColor or Color3.fromRGB(255, 255, 255)
+	label.TextColor3 = color or Color3.new(1, 1, 1)
+	label.TextStrokeTransparency = 0.3
+	label.Font = Enum.Font.FredokaOne
 	label.TextScaled = true
-	label.Font = Enum.Font.GothamBold
 	label.Parent = gui
-	return label
+	return post
 end
 
-local function buildPlot(world, index, centerX, centerZ)
-	local plotFolder = Instance.new("Folder")
-	plotFolder.Name = "Plot" .. tostring(index)
-	plotFolder.Parent = world
-
-	local floorColor = PLOT_COLORS[((index - 1) % #PLOT_COLORS) + 1]
-	local floor = part(plotFolder, "Floor", Vector3.new(26, 0.6, 26),
-		CFrame.new(centerX, 0.3, centerZ), floorColor, Enum.Material.SmoothPlastic)
-
-	-- 6 placement pads: two rows of three.
-	local pads = {}
-	local padOffsets = {
-		Vector3.new(-7.5, 0, -5.5), Vector3.new(0, 0, -5.5), Vector3.new(7.5, 0, -5.5),
-		Vector3.new(-7.5, 0, 5.5), Vector3.new(0, 0, 5.5), Vector3.new(7.5, 0, 5.5),
-	}
-	for i, off in ipairs(padOffsets) do
-		local pad = part(plotFolder, "Pad" .. tostring(i), Vector3.new(4.4, 0.5, 4.4),
-			CFrame.new(centerX + off.X, 0.85, centerZ + off.Z),
-			Color3.fromRGB(245, 245, 245), Enum.Material.Neon)
-		pad.Transparency = 0.25
-		table.insert(pads, pad)
-	end
-
-	-- Direction toward the lane (plots on the left face +X, on the right face -X).
-	local laneDir = (centerX < 0) and 1 or -1
-
-	-- Sell pad (red) on the lane-side front corner, lock pad (yellow) on the back corner.
-	local sellPad = part(plotFolder, "SellPad", Vector3.new(4.5, 0.5, 4.5),
-		CFrame.new(centerX + laneDir * 9, 0.85, centerZ - 9.5),
-		Color3.fromRGB(230, 50, 50), Enum.Material.Neon)
-	makeLabel(sellPad, "SellLabel", "JUAL", UDim2.fromOffset(110, 40), Vector3.new(0, 3, 0))
-
-	local lockPad = part(plotFolder, "LockPad", Vector3.new(4.5, 0.5, 4.5),
-		CFrame.new(centerX - laneDir * 9, 0.85, centerZ - 9.5),
-		Color3.fromRGB(255, 205, 40), Enum.Material.Neon)
-	makeLabel(lockPad, "LockLabelGui", "KUNCI", UDim2.fromOffset(110, 40), Vector3.new(0, 3, 0))
-	local lockLabel = makeLabel(lockPad, "LockStateGui", "TERBUKA", UDim2.fromOffset(150, 44),
-		Vector3.new(0, 5.5, 0), Color3.fromRGB(120, 255, 140))
-
-	-- Sign board on the lane side with plot number and owner label.
-	local signPost = part(plotFolder, "SignPost", Vector3.new(0.6, 5, 0.6),
-		CFrame.new(centerX + laneDir * 12.5, 2.5, centerZ + 10), Color3.fromRGB(90, 60, 35))
-	local sign = part(plotFolder, "Sign", Vector3.new(0.5, 3.4, 9),
-		CFrame.new(centerX + laneDir * 12.5, 6, centerZ + 10), Color3.fromRGB(35, 35, 50))
-	local titleLabel = makeLabel(sign, "TitleGui", "BASE " .. tostring(index),
-		UDim2.fromOffset(200, 50), Vector3.new(0, 1.6, 0))
-	titleLabel.TextColor3 = Color3.fromRGB(255, 235, 150)
-	local ownerLabel = makeLabel(sign, "OwnerGui", "KOSONG",
-		UDim2.fromOffset(220, 50), Vector3.new(0, -1.4, 0))
-	ownerLabel.TextColor3 = Color3.fromRGB(200, 220, 255)
-
-	-- Low border walls around the plot.
-	local wallColor = Color3.fromRGB(60, 60, 75)
-	part(plotFolder, "WallBack", Vector3.new(26, 1.6, 0.6), CFrame.new(centerX, 1.1, centerZ - 13), wallColor)
-	part(plotFolder, "WallFront", Vector3.new(26, 1.6, 0.6), CFrame.new(centerX, 1.1, centerZ + 13), wallColor)
-	part(plotFolder, "WallLeft", Vector3.new(0.6, 1.6, 26), CFrame.new(centerX - 13, 1.1, centerZ), wallColor)
-	part(plotFolder, "WallRight", Vector3.new(0.6, 1.6, 26), CFrame.new(centerX + 13, 1.1, centerZ), wallColor)
-
-	-- Glass lock walls (hidden until the owner locks the base).
-	local glassWalls = {}
-	local glassDefs = {
-		{ "GlassBack", Vector3.new(26, 7, 0.4), Vector3.new(0, 3.5, -13) },
-		{ "GlassFront", Vector3.new(26, 7, 0.4), Vector3.new(0, 3.5, 13) },
-		{ "GlassLeft", Vector3.new(0.4, 7, 26), Vector3.new(-13, 3.5, 0) },
-		{ "GlassRight", Vector3.new(0.4, 7, 26), Vector3.new(13, 3.5, 0) },
-	}
-	for _, def in ipairs(glassDefs) do
-		local g = part(plotFolder, def[1], def[2],
-			CFrame.new(centerX + def[3].X, def[3].Y, centerZ + def[3].Z),
-			Color3.fromRGB(150, 220, 255), Enum.Material.Glass)
-		g.Transparency = 0.45
-		g.CanCollide = false
-		g.Visible = false
-		table.insert(glassWalls, g)
-	end
-
-	return {
-		Index = index,
-		Floor = floor,
-		Pads = pads,
-		SellPad = sellPad,
-		LockPad = lockPad,
-		Center = Vector3.new(centerX, 1, centerZ),
-		OwnerLabel = ownerLabel,
-		LockLabel = lockLabel,
-		GlassWalls = glassWalls,
-		Owner = nil,
-		LockUntil = 0,
-		Occupied = {},
-	}
+local function tree(parent, position, rng, leafColor)
+	local height = rng:NextNumber(9, 14)
+	part(parent, "Trunk", Vector3.new(2, height, 2), position + Vector3.new(0, height / 2, 0), Color3.fromRGB(110, 75, 45), Enum.Material.Wood, true)
+	part(parent, "Leaves", Vector3.new(9, 7, 9), position + Vector3.new(0, height + 3, 0), leafColor, Enum.Material.SmoothPlastic, false)
+	part(parent, "LeavesTop", Vector3.new(6, 4, 6), position + Vector3.new(0, height + 7, 0), leafColor, Enum.Material.SmoothPlastic, false)
 end
 
-function WorldBuilder.build()
+local function nodeModel(parent, nodeType, name)
+	local model = Instance.new("Model")
+	model.Name = name
+	model:SetAttribute("NodeType", nodeType)
+	model.Parent = parent
+	return model
+end
+
+function WorldBuilder.Build()
+	local old = workspace:FindFirstChild("DinoWorld")
+	if old then
+		old:Destroy()
+	end
 	local world = Instance.new("Folder")
-	world.Name = "BrainrotWorld"
+	world.Name = "DinoWorld"
 	world.Parent = workspace
 
-	-- Ground and central road.
-	part(world, "Ground", Vector3.new(280, 1, 280), CFrame.new(0, -0.5, 0),
-		Color3.fromRGB(95, 190, 85), Enum.Material.Grass)
-	part(world, "Road", Vector3.new(20, 0.3, 220), CFrame.new(0, 0.05, 0),
-		Color3.fromRGB(90, 90, 100), Enum.Material.Asphalt)
+	local rng = Random.new(20261120)
 
-	-- Conveyor lane along Z, from the portal (z=-90) to the far end (z=+90).
-	local belt = part(world, "ConveyorBelt", Vector3.new(10, 0.5, 180), CFrame.new(0, 0.45, 0),
-		Color3.fromRGB(35, 35, 45), Enum.Material.Metal)
-	belt.Name = "ConveyorBelt"
-	part(world, "RailLeft", Vector3.new(0.7, 1, 180), CFrame.new(-5.6, 0.9, 0),
-		Color3.fromRGB(255, 190, 40), Enum.Material.Metal)
-	part(world, "RailRight", Vector3.new(0.7, 1, 180), CFrame.new(5.6, 0.9, 0),
-		Color3.fromRGB(255, 190, 40), Enum.Material.Metal)
-	for z = -84, 84, 12 do
-		local stripe = part(world, "Stripe", Vector3.new(9.4, 0.12, 1.2), CFrame.new(0, 0.76, z),
-			Color3.fromRGB(255, 235, 120), Enum.Material.Neon)
-		stripe.CanCollide = false
+	-- Zone grounds (top surface at Y=0).
+	for zoneName, zone in pairs(DinoData.Zones) do
+		if zoneName ~= "Camp" then
+			local r = zone.Rect
+			local cx, cz = (r[1] + r[2]) / 2, (r[3] + r[4]) / 2
+			part(world, "Ground_" .. zoneName, Vector3.new(r[2] - r[1], 2, r[4] - r[3]), Vector3.new(cx, -1, cz), rgb(zone.Ground), Enum.Material.Grass, true)
+		end
+	end
+	-- Camp clearing on top of the middle.
+	part(world, "Ground_Camp", Vector3.new(130, 2.4, 130), Vector3.new(0, -1, 0), rgb(DinoData.Zones.Camp.Ground), Enum.Material.Grass, true)
+
+	-- River strip running north-south between the west and east zones.
+	part(world, "River", Vector3.new(46, 1, 1000), Vector3.new(0, 0.15, 0), Color3.fromRGB(60, 140, 220), Enum.Material.SmoothPlastic, false).Transparency = 0.25
+	-- Wooden bridges over the river at camp height.
+	part(world, "BridgeW", Vector3.new(60, 1, 14), Vector3.new(0, 0.6, -120), Color3.fromRGB(140, 100, 60), Enum.Material.Wood, true)
+	part(world, "BridgeE", Vector3.new(60, 1, 14), Vector3.new(0, 0.6, 120), Color3.fromRGB(140, 100, 60), Enum.Material.Wood, true)
+
+	-- Ponds in the swamp.
+	for _ = 1, 4 do
+		local x, z = rng:NextNumber(-460, -120), rng:NextNumber(120, 460)
+		part(world, "Pond", Vector3.new(rng:NextNumber(30, 55), 1, rng:NextNumber(30, 55)), Vector3.new(x, 0.2, z), Color3.fromRGB(50, 90, 70), Enum.Material.SmoothPlastic, false).Transparency = 0.2
 	end
 
-	-- Portal at the start of the lane.
-	part(world, "PortalPillarL", Vector3.new(1.6, 11, 1.6), CFrame.new(-6.5, 5.5, -90),
-		Color3.fromRGB(120, 60, 220), Enum.Material.Neon)
-	part(world, "PortalPillarR", Vector3.new(1.6, 11, 1.6), CFrame.new(6.5, 5.5, -90),
-		Color3.fromRGB(120, 60, 220), Enum.Material.Neon)
-	part(world, "PortalBeam", Vector3.new(14.6, 1.6, 1.6), CFrame.new(0, 11, -90),
-		Color3.fromRGB(120, 60, 220), Enum.Material.Neon)
-	local disc = Instance.new("Part")
-	disc.Name = "PortalDisc"
-	disc.Shape = Enum.PartType.Cylinder
-	disc.Size = Vector3.new(0.6, 8.4, 8.4)
-	disc.CFrame = CFrame.new(0, 6, -90) * CFrame.Angles(0, 0, math.rad(90))
-	disc.Color = Color3.fromRGB(170, 90, 255)
-	disc.Material = Enum.Material.Neon
-	disc.Transparency = 0.25
-	disc.Anchored = true
-	disc.CanCollide = false
-	disc.Parent = world
-	makeLabel(disc, "PortalGui", "PORTAL BRAINROT", UDim2.fromOffset(280, 56), Vector3.new(0, 6, 0))
+	-- Volcano cone + lava pools (lava parts are found by name for damage).
+	local volcano = part(world, "VolcanoCone", Vector3.new(120, 55, 120), Vector3.new(330, 24, 330), Color3.fromRGB(70, 60, 65), Enum.Material.Rock, true)
+	volcano.Shape = Enum.PartType.Cylinder
+	for i = 1, 3 do
+		local x, z = 240 + i * 55, 150 + (i % 2) * 90
+		local lava = part(world, "LavaPool", Vector3.new(34, 1.2, 34), Vector3.new(x, 0.4, z), Color3.fromRGB(255, 110, 20), Enum.Material.Neon, false)
+		lava:SetAttribute("IsLava", true)
+	end
+	local crater = part(world, "LavaPool", Vector3.new(44, 2, 44), Vector3.new(330, 52, 330), Color3.fromRGB(255, 130, 25), Enum.Material.Neon, false)
+	crater:SetAttribute("IsLava", true)
 
-	local spawnPoint = CFrame.new(0, 3.2, -80)
-	local laneEnd = Vector3.new(0, 3.2, 88)
+	-- Edge cliffs so players stay inside the world.
+	local cliffColor = Color3.fromRGB(95, 85, 80)
+	part(world, "CliffN", Vector3.new(1040, 26, 12), Vector3.new(0, 11, -506), cliffColor, Enum.Material.Rock, true)
+	part(world, "CliffS", Vector3.new(1040, 26, 12), Vector3.new(0, 11, 506), cliffColor, Enum.Material.Rock, true)
+	part(world, "CliffW", Vector3.new(12, 26, 1040), Vector3.new(-506, 11, 0), cliffColor, Enum.Material.Rock, true)
+	part(world, "CliffE", Vector3.new(12, 26, 1040), Vector3.new(506, 11, 0), cliffColor, Enum.Material.Rock, true)
 
-	-- 8 base plots: 4 left, 4 right.
-	local plots = {}
-	local zSlots = { -67.5, -22.5, 22.5, 67.5 }
-	local idx = 0
-	for side = -1, 1, 2 do
-		for i = 1, 4 do
-			idx += 1
-			local plot = buildPlot(world, idx, side * 34, zSlots[i])
-			table.insert(plots, plot)
+	-- Scatter decorative trees per zone.
+	local jungleLeaf = Color3.fromRGB(45, 130, 50)
+	for _ = 1, 42 do
+		tree(world, Vector3.new(rng:NextNumber(-480, -90), 0, rng:NextNumber(-480, -90)), rng, jungleLeaf)
+	end
+	for _ = 1, 20 do
+		tree(world, Vector3.new(rng:NextNumber(-480, -90), 0, rng:NextNumber(90, 480)), rng, Color3.fromRGB(40, 90, 45))
+	end
+	for _ = 1, 8 do -- desert cacti
+		local pos = Vector3.new(rng:NextNumber(90, 480), 0, rng:NextNumber(-480, -90))
+		part(world, "Cactus", Vector3.new(2.5, 11, 2.5), pos + Vector3.new(0, 5.5, 0), Color3.fromRGB(60, 150, 70), Enum.Material.SmoothPlastic, true)
+	end
+	for _ = 1, 10 do -- desert bones
+		local pos = Vector3.new(rng:NextNumber(90, 480), 0, rng:NextNumber(-480, -90))
+		part(world, "Bone", Vector3.new(10, 1.2, 1.2), pos + Vector3.new(0, 0.8, 0), Color3.fromRGB(240, 235, 215), Enum.Material.SmoothPlastic, false)
+		part(world, "Bone", Vector3.new(1.2, 1.2, 6), pos + Vector3.new(3, 0.8, 2), Color3.fromRGB(240, 235, 215), Enum.Material.SmoothPlastic, false)
+	end
+	for _ = 1, 12 do -- volcanic rocks
+		local pos = Vector3.new(rng:NextNumber(90, 480), 0, rng:NextNumber(90, 480))
+		if (pos - Vector3.new(330, 0, 330)).Magnitude > 90 then
+			part(world, "Rock", Vector3.new(rng:NextNumber(4, 9), rng:NextNumber(3, 7), rng:NextNumber(4, 9)), pos + Vector3.new(0, 2, 0), Color3.fromRGB(85, 75, 80), Enum.Material.Rock, true)
 		end
 	end
 
-	-- Decorations: trees, lamps, clouds, edge fence.
-	local rng = Random.new(12345)
-	for i = 1, 12 do
-		local tx = (i % 2 == 0) and -95 or 95
-		local tz = -110 + i * 18 + rng:NextNumber(-3, 3)
-		local trunk = Instance.new("Part")
-		trunk.Name = "TreeTrunk"
-		trunk.Shape = Enum.PartType.Cylinder
-		trunk.Size = Vector3.new(4.5, 1.1, 1.1)
-		trunk.CFrame = CFrame.new(tx, 2.25, tz)
-		trunk.Color = Color3.fromRGB(110, 75, 45)
-		trunk.Anchored = true
-		trunk.Parent = world
-		local leaves = Instance.new("Part")
-		leaves.Name = "TreeLeaves"
-		leaves.Shape = Enum.PartType.Ball
-		leaves.Size = Vector3.new(6.5, 6.5, 6.5)
-		leaves.CFrame = CFrame.new(tx, 7.5, tz)
-		leaves.Color = Color3.fromRGB(60, 170, 70)
-		leaves.Anchored = true
-		leaves.Parent = world
-	end
-	for z = -100, 100, 40 do
-		for _, lx in ipairs({ -14, 14 }) do
-			part(world, "LampPost", Vector3.new(0.5, 7, 0.5), CFrame.new(lx, 3.5, z),
-				Color3.fromRGB(50, 50, 60), Enum.Material.Metal)
-			local bulb = part(world, "LampBulb", Vector3.new(1.6, 1.6, 1.6), CFrame.new(lx, 7.4, z),
-				Color3.fromRGB(255, 240, 170), Enum.Material.Neon)
-			bulb.CanCollide = false
-		end
-	end
-	for i = 1, 5 do
-		local cloud = part(world, "Cloud", Vector3.new(26 + i * 3, 3, 12),
-			CFrame.new(-90 + i * 36, 42 + (i % 3) * 4, -70 + i * 28),
-			Color3.fromRGB(250, 250, 255), Enum.Material.SmoothPlastic)
-		cloud.CanCollide = false
-		cloud.Transparency = 0.15
-	end
-	part(world, "FenceN", Vector3.new(280, 3, 0.6), CFrame.new(0, 1.5, -140), Color3.fromRGB(130, 90, 55))
-	part(world, "FenceS", Vector3.new(280, 3, 0.6), CFrame.new(0, 1.5, 140), Color3.fromRGB(130, 90, 55))
-	part(world, "FenceW", Vector3.new(0.6, 3, 280), CFrame.new(-140, 1.5, 0), Color3.fromRGB(130, 90, 55))
-	part(world, "FenceE", Vector3.new(0.6, 3, 280), CFrame.new(140, 1.5, 0), Color3.fromRGB(130, 90, 55))
+	-- ===== CAMP =====
+	local camp = Instance.new("Folder")
+	camp.Name = "Camp"
+	camp.Parent = world
 
-	-- Spawn location near the lane, between the middle plots.
 	local spawn = Instance.new("SpawnLocation")
-	spawn.Name = "BrainrotSpawn"
-	spawn.Size = Vector3.new(9, 1, 9)
-	spawn.CFrame = CFrame.new(15, 0.6, 0)
-	spawn.Color = Color3.fromRGB(255, 255, 255)
-	spawn.Material = Enum.Material.Neon
-	spawn.Transparency = 0.4
+	spawn.Name = "DinoSpawn"
+	spawn.Size = Vector3.new(16, 1, 16)
+	spawn.Position = Vector3.new(0, 1.2, 0)
+	spawn.Color = Color3.fromRGB(255, 200, 80)
+	spawn.Material = Enum.Material.SmoothPlastic
 	spawn.Anchored = true
+	spawn.CanCollide = true
 	spawn.Neutral = true
-	spawn.Parent = world
+	spawn.Parent = camp
+	part(camp, "CampPad", Vector3.new(50, 0.6, 50), Vector3.new(0, 0.4, 0), Color3.fromRGB(190, 160, 110), Enum.Material.Wood, true)
 
-	local brainrotFolder = Instance.new("Folder")
-	brainrotFolder.Name = "Brainrots"
-	brainrotFolder.Parent = workspace
+	-- Campfire: heals nearby players (handled by the world tick).
+	local fireBase = part(camp, "Campfire", Vector3.new(6, 1.5, 6), Vector3.new(12, 1, 10), Color3.fromRGB(90, 60, 40), Enum.Material.Wood, false)
+	fireBase:SetAttribute("IsCampfire", true)
+	fireBase.Shape = Enum.PartType.Cylinder
+	local flame = part(camp, "Flame", Vector3.new(3.4, 4.5, 3.4), Vector3.new(12, 3.5, 10), Color3.fromRGB(255, 140, 30), Enum.Material.Neon, false)
+	local fire = Instance.new("Fire")
+	fire.Size = 7
+	fire.Heat = 12
+	fire.Parent = flame
+	local light = Instance.new("PointLight")
+	light.Color = Color3.fromRGB(255, 170, 80)
+	light.Range = 34
+	light.Brightness = 2
+	light.Parent = flame
 
-	return {
-		Folder = world,
-		Plots = plots,
-		SpawnPoint = spawnPoint,
-		LaneEnd = laneEnd,
-		PortalDisc = disc,
-		SpawnLocation = spawn,
-		BrainrotFolder = brainrotFolder,
-	}
+	-- Hatch pad at camp.
+	local hatch = part(camp, "HatchPad", Vector3.new(10, 1, 10), Vector3.new(-14, 0.8, 12), Color3.fromRGB(255, 170, 220), Enum.Material.SmoothPlastic, true)
+	hatch:SetAttribute("NodeType", "Hatch")
+	hatch.Shape = Enum.PartType.Cylinder
+
+	-- Camp fences.
+	for _, spec in ipairs({
+		{ Vector3.new(56, 3, 2), Vector3.new(0, 1.8, -28) },
+		{ Vector3.new(56, 3, 2), Vector3.new(0, 1.8, 28) },
+		{ Vector3.new(2, 3, 56), Vector3.new(-28, 1.8, 0) },
+		{ Vector3.new(2, 3, 56), Vector3.new(28, 1.8, 0) },
+	}) do
+		part(camp, "Fence", spec[1], spec[2], Color3.fromRGB(130, 90, 55), Enum.Material.Wood, true)
+	end
+
+	sign(camp, Vector3.new(0, 0, -34), "🏕️ KAMP DINO", Color3.fromRGB(255, 230, 150))
+	sign(world, Vector3.new(-90, 0, -90), "🌴 HUTAN RIMBA", Color3.fromRGB(170, 255, 170))
+	sign(world, Vector3.new(90, 0, -90), "🦴 GURUN TULANG", Color3.fromRGB(255, 235, 180))
+	sign(world, Vector3.new(-90, 0, 90), "🐸 RAWA GELAP", Color3.fromRGB(170, 255, 210))
+	sign(world, Vector3.new(90, 0, 90), "🌋 GUNUNG BERAPI — AWAS T-REX!", Color3.fromRGB(255, 160, 120))
+
+	-- ===== GATHER NODES =====
+	local nodes = Instance.new("Folder")
+	nodes.Name = "Nodes"
+	nodes.Parent = world
+
+	local function scatterPos(zoneName)
+		local r = DinoData.Zones[zoneName].Rect
+		return Vector3.new(rng:NextNumber(r[1] + 25, r[2] - 25), 0, rng:NextNumber(r[3] + 25, r[4] - 25))
+	end
+	local wildZones = { "Jungle", "Desert", "Swamp", "Volcano" }
+
+	for i = 1, 14 do
+		local pos = scatterPos(wildZones[(i % 4) + 1])
+		local m = nodeModel(nodes, "Berry", "BerryBush" .. i)
+		part(m, "Bush", Vector3.new(5, 3.5, 5), pos + Vector3.new(0, 1.7, 0), Color3.fromRGB(50, 140, 60), Enum.Material.SmoothPlastic, false)
+		for b = 1, 4 do
+			part(m, "Berry", Vector3.new(0.9, 0.9, 0.9), pos + Vector3.new(rng:NextNumber(-2, 2), rng:NextNumber(1.5, 3.4), rng:NextNumber(-2, 2)), Color3.fromRGB(230, 60, 90), Enum.Material.SmoothPlastic, false).Shape = Enum.PartType.Ball
+		end
+	end
+	for i = 1, 14 do
+		local pos = scatterPos(wildZones[((i + 1) % 4) + 1])
+		local m = nodeModel(nodes, "Wood", "WoodTree" .. i)
+		part(m, "Trunk", Vector3.new(2.6, 12, 2.6), pos + Vector3.new(0, 6, 0), Color3.fromRGB(120, 80, 45), Enum.Material.Wood, true)
+		part(m, "Leaves", Vector3.new(10, 8, 10), pos + Vector3.new(0, 15, 0), Color3.fromRGB(60, 150, 65), Enum.Material.SmoothPlastic, false)
+	end
+	for i = 1, 12 do
+		local pos = scatterPos(wildZones[((i + 2) % 4) + 1])
+		local m = nodeModel(nodes, "Stone", "StoneRock" .. i)
+		part(m, "Rock", Vector3.new(5, 3.5, 4.5), pos + Vector3.new(0, 1.6, 0), Color3.fromRGB(140, 140, 145), Enum.Material.Rock, true)
+		part(m, "RockTop", Vector3.new(3, 2, 3), pos + Vector3.new(0.5, 4, 0), Color3.fromRGB(160, 160, 165), Enum.Material.Rock, false)
+	end
+	for i = 1, 8 do
+		local pos = scatterPos(wildZones[((i + 3) % 4) + 1])
+		local m = nodeModel(nodes, "Nest", "DinoNest" .. i)
+		part(m, "Nest", Vector3.new(7, 1.6, 7), pos + Vector3.new(0, 0.8, 0), Color3.fromRGB(150, 110, 60), Enum.Material.Wood, false).Shape = Enum.PartType.Cylinder
+		for e = 1, 3 do
+			local egg = part(m, "Egg", Vector3.new(1.6, 2, 1.6), pos + Vector3.new((e - 2) * 1.8, 2.2, rng:NextNumber(-1, 1)), Color3.fromRGB(245, 240, 220), Enum.Material.SmoothPlastic, false)
+			egg.Shape = Enum.PartType.Ball
+		end
+	end
+
+	return world
 end
 
 return WorldBuilder

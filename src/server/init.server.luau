@@ -1,77 +1,139 @@
--- init.server.luau
--- BRAINROT NUSANTARA - server entry point. Wires every module together:
--- world, economy, bases, spawner, tsunami threat and stealing.
+-- init.server.luau -- BRAINROT DINO server entry point.
+-- Spawn safety comes FIRST: characters must always load, unanchored and
+-- able to move, even if every game module below fails.
 
 local Players = game:GetService("Players")
-local RunService = game:GetService("RunService")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
-local function req(name)
-	local m = script:FindFirstChild(name)
-	if not m then
-		m = script.Parent:FindFirstChild(name)
+Players.CharacterAutoLoads = true
+
+-- ===== Remotes (created before any module or client can wait on them) =====
+local remotes = Instance.new("Folder")
+remotes.Name = "DinoRemotes"
+remotes.Parent = ReplicatedStorage
+for _, remoteName in ipairs({ "Attack", "Notify" }) do
+	local remote = Instance.new("RemoteEvent")
+	remote.Name = remoteName
+	remote.Parent = remotes
+end
+
+-- ===== Module loading (pcall so a broken module never kills wiring) =====
+local function loadModule(name)
+	local inst = script:FindFirstChild(name) or script.Parent:FindFirstChild(name)
+	if not inst then
+		warn("[Dino] module not found: " .. name)
+		return nil
 	end
-	assert(m, "BrainrotNusantara: missing server module " .. name)
-	return require(m)
+	local ok, result = pcall(require, inst)
+	if not ok then
+		warn("[Dino] module failed to load: " .. name .. " -- " .. tostring(result))
+		return nil
+	end
+	return result
 end
 
-local WorldBuilder = req("WorldBuilder")
-local Economy = req("Economy")
-local BaseManager = req("BaseManager")
-local Spawner = req("Spawner")
-local Threat = req("Threat")
-local Steal = req("Steal")
+local WorldBuilder = loadModule("WorldBuilder")
+local DinoFactory = loadModule("DinoFactory")
+local Survival = loadModule("Survival")
+local DinoAI = loadModule("DinoAI")
+local Combat = loadModule("Combat")
 
-local refs = WorldBuilder.build()
+-- ===== Player wiring (connected BEFORE any module starts) =====
 
-Economy.initRemotes()
-Economy.startTick()
-
-BaseManager.init(refs)
-BaseManager.start()
-
--- Cross-module wiring (keeps the require graph acyclic).
-Economy.BuyHandler = function(player, model)
-	Spawner.untrack(model)
-	BaseManager.carry(player, model)
+local function onCharacterAdded(character)
+	for _, partInst in ipairs(character:GetDescendants()) do
+		if partInst:IsA("BasePart") then
+			partInst.Anchored = false
+		end
+	end
+	local hum = character:FindFirstChildOfClass("Humanoid")
+	if hum then
+		hum.WalkSpeed = 20
+		hum.PlatformStand = false
+		hum.Sit = false
+	end
+	-- Keep MaxHealth in sync with Level once stats exist.
+	if Survival then
+		local player = Players:GetPlayerFromCharacter(character)
+		if player then
+			pcall(Survival.ApplyMaxHealth, player)
+		end
+	end
 end
-Economy.ClearHandler = function(player)
-	BaseManager.clearAll(player)
-end
-
-Spawner.start(refs)
-Threat.start(refs)
-Steal.init(refs)
 
 local function onPlayerAdded(player)
-	Economy.setup(player)
-	BaseManager.assignPlot(player)
-	player.CharacterAdded:Connect(function(character)
-		local humanoid = character:WaitForChild("Humanoid", 5)
-		if humanoid then
-			humanoid.WalkSpeed = 20
+	if Survival then
+		local ok, err = pcall(Survival.SetupPlayer, player)
+		if not ok then
+			warn("[Dino] SetupPlayer failed: " .. tostring(err))
+		end
+	end
+	player.CharacterAdded:Connect(onCharacterAdded)
+	if player.Character then
+		onCharacterAdded(player.Character)
+	end
+	task.delay(2, function()
+		if player.Parent and not player.Character then
+			pcall(function()
+				player:LoadCharacter()
+			end)
 		end
 	end)
 end
 
-local function onPlayerRemoving(player)
-	BaseManager.clearAll(player)
-	BaseManager.releasePlot(player)
-	Economy.cleanup(player)
-end
-
 Players.PlayerAdded:Connect(onPlayerAdded)
-Players.PlayerRemoving:Connect(onPlayerRemoving)
 for _, player in ipairs(Players:GetPlayers()) do
-	onPlayerAdded(player)
+	task.spawn(onPlayerAdded, player)
 end
 
--- Slowly spin the portal disc.
-local angle = 0
-RunService.Heartbeat:Connect(function(dt)
-	angle += dt * 0.8
-	refs.PortalDisc.CFrame = CFrame.new(0, 6, -90)
-		* CFrame.Angles(0, 0, math.rad(90))
-		* CFrame.Angles(angle, 0, 0)
+Players.PlayerRemoving:Connect(function(player)
+	if Survival then
+		pcall(Survival.CleanupPlayer, player)
+	end
 end)
 
-print("[BrainrotNusantara] server siap")
+-- ===== Start the game world and modules (each isolated in pcall) =====
+
+if WorldBuilder then
+	local ok, err = pcall(WorldBuilder.Build)
+	if not ok then
+		warn("[Dino] WorldBuilder failed: " .. tostring(err))
+	end
+end
+
+if Survival and DinoFactory then
+	Survival.Remotes = remotes
+	Survival.Factory = DinoFactory
+	local ok, err = pcall(Survival.Start)
+	if not ok then
+		warn("[Dino] Survival failed: " .. tostring(err))
+	end
+end
+
+if DinoAI and DinoFactory then
+	DinoAI.Factory = DinoFactory
+	DinoAI.OnKill = function(player, speciesData)
+		if Survival then
+			Survival.AddXP(player, speciesData.XP)
+			Survival.AddCoins(player, speciesData.Coins)
+			Survival.AddItem(player, "Daging", speciesData.Meat)
+			Survival.Notify(player, "🦖 " .. speciesData.Name .. " tumbang! +" .. speciesData.XP .. " XP, +" .. speciesData.Coins .. " Koin, +" .. speciesData.Meat .. " Daging")
+		end
+	end
+	local ok, err = pcall(DinoAI.Start)
+	if not ok then
+		warn("[Dino] DinoAI failed: " .. tostring(err))
+	end
+end
+
+if Combat then
+	Combat.Remotes = remotes
+	Combat.AI = DinoAI
+	Combat.Stats = Survival
+	local ok, err = pcall(Combat.Start)
+	if not ok then
+		warn("[Dino] Combat failed: " .. tostring(err))
+	end
+end
+
+print("[Dino] BRAINROT DINO server started")

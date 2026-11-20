@@ -18,7 +18,7 @@ import { basename, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { buildDossier } from './vendor/makefun-roblox.ts';
 
-const GAME_TITLE = 'Brainrot Nusantara';
+const GAME_TITLE = 'Brainrot Dino: Petualangan Zaman Dinosaurus';
 console.log('Packaging entry: ' + GAME_TITLE);
 
 const here = fileURLToPath(new URL('.', import.meta.url));
