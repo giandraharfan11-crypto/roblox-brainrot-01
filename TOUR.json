@@ -1,1 +1,1 @@
-{"steps":[{"screenshot":"1-start.png"},{"keys":["W"],"screenshot":"2-play.png","wait_ms":1500},{"keys":["Space"],"screenshot":"3-end.png","wait_ms":1000}],"tour":1}
+{"steps":[{"screenshot":"1-camp.jpg"},{"keys":["W"],"screenshot":"2-closeup.jpg","wait_ms":1500},{"keys":["Space"],"screenshot":"3-jungle.jpg","wait_ms":1000}],"tour":1}
