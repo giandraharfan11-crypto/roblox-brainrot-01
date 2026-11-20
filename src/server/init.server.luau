@@ -32,20 +32,14 @@ local function loadModule(name)
 	return result
 end
 
-local WorldBuilder = loadModule("WorldBuilder")
 local DinoFactory = loadModule("DinoFactory")
 local Survival = loadModule("Survival")
 local DinoAI = loadModule("DinoAI")
 local Combat = loadModule("Combat")
 
--- ===== Build world BEFORE any player wiring (so DinoSpawn exists) =====
-
-if WorldBuilder then
-	local ok, err = pcall(WorldBuilder.Build)
-	if not ok then
-		warn("[Dino] WorldBuilder failed: " .. tostring(err))
-	end
-end
+-- ===== World is baked into the place file (Workspace.DinoWorld) =====
+-- The static world pre-exists in Workspace (world.rbxmx via Rojo), so
+-- DinoSpawn is already present before any player wiring below.
 
 -- ===== Player wiring (connected BEFORE any module starts) =====
 
