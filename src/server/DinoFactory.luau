@@ -60,9 +60,10 @@ end
 local function makeLabel(parentPart, title, subtitle, titleColor)
 	local gui = Instance.new("BillboardGui")
 	gui.Name = "Label"
-	gui.Size = UDim2.fromOffset(220, 64)
+	gui.Size = UDim2.new(10, 0, 3, 0)
+	gui.MaxDistance = 90
 	gui.StudsOffset = Vector3.new(0, 3.2, 0)
-	gui.AlwaysOnTop = true
+	gui.AlwaysOnTop = false
 	gui.Parent = parentPart
 
 	local nameLabel = Instance.new("TextLabel")
@@ -93,9 +94,10 @@ end
 local function makeHPBar(parentPart)
 	local gui = Instance.new("BillboardGui")
 	gui.Name = "HPBar"
-	gui.Size = UDim2.fromOffset(180, 26)
+	gui.Size = UDim2.new(7, 0, 1, 0)
+	gui.MaxDistance = 90
 	gui.StudsOffset = Vector3.new(0, 2.2, 0)
-	gui.AlwaysOnTop = true
+	gui.AlwaysOnTop = false
 	gui.Parent = parentPart
 
 	local back = Instance.new("Frame")

@@ -38,6 +38,15 @@ local Survival = loadModule("Survival")
 local DinoAI = loadModule("DinoAI")
 local Combat = loadModule("Combat")
 
+-- ===== Build world BEFORE any player wiring (so DinoSpawn exists) =====
+
+if WorldBuilder then
+	local ok, err = pcall(WorldBuilder.Build)
+	if not ok then
+		warn("[Dino] WorldBuilder failed: " .. tostring(err))
+	end
+end
+
 -- ===== Player wiring (connected BEFORE any module starts) =====
 
 local function onCharacterAdded(character)
@@ -59,6 +68,13 @@ local function onCharacterAdded(character)
 			pcall(Survival.ApplyMaxHealth, player)
 		end
 	end
+	task.spawn(function()
+		local hrp = character:WaitForChild("HumanoidRootPart", 5)
+		local spawnPad = workspace:FindFirstChild("DinoSpawn", true)
+		if hrp and spawnPad then
+			character:PivotTo(CFrame.new(spawnPad.Position + Vector3.new(0, 4, 0)))
+		end
+	end)
 end
 
 local function onPlayerAdded(player)
@@ -93,13 +109,6 @@ Players.PlayerRemoving:Connect(function(player)
 end)
 
 -- ===== Start the game world and modules (each isolated in pcall) =====
-
-if WorldBuilder then
-	local ok, err = pcall(WorldBuilder.Build)
-	if not ok then
-		warn("[Dino] WorldBuilder failed: " .. tostring(err))
-	end
-end
 
 if Survival and DinoFactory then
 	Survival.Remotes = remotes

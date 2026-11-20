@@ -29,8 +29,9 @@ local function sign(parent, position, text, color)
 	local post = part(parent, "SignPost", Vector3.new(1, 7, 1), position + Vector3.new(0, 3.5, 0), Color3.fromRGB(110, 75, 45), Enum.Material.Wood, false)
 	local board = part(parent, "SignBoard", Vector3.new(14, 4, 0.6), position + Vector3.new(0, 8, 0), Color3.fromRGB(140, 100, 60), Enum.Material.Wood, false)
 	local gui = Instance.new("BillboardGui")
-	gui.Size = UDim2.fromOffset(320, 80)
-	gui.AlwaysOnTop = true
+	gui.Size = UDim2.new(20, 0, 5, 0)
+	gui.MaxDistance = 170
+	gui.AlwaysOnTop = false
 	gui.Parent = board
 	local label = Instance.new("TextLabel")
 	label.Size = UDim2.new(1, 0, 1, 0)
@@ -68,6 +69,8 @@ function WorldBuilder.Build()
 	world.Name = "DinoWorld"
 	world.Parent = workspace
 
+	part(world, "GroundBase", Vector3.new(1012, 2, 1012), Vector3.new(0, -1.1, 0), Color3.fromRGB(86, 148, 70), Enum.Material.Grass, true)
+
 	local rng = Random.new(20261120)
 
 	-- Zone grounds (top surface at Y=0).
@@ -96,6 +99,7 @@ function WorldBuilder.Build()
 	-- Volcano cone + lava pools (lava parts are found by name for damage).
 	local volcano = part(world, "VolcanoCone", Vector3.new(120, 55, 120), Vector3.new(330, 24, 330), Color3.fromRGB(70, 60, 65), Enum.Material.Rock, true)
 	volcano.Shape = Enum.PartType.Cylinder
+	volcano.Orientation = Vector3.new(0, 0, 90)
 	for i = 1, 3 do
 		local x, z = 240 + i * 55, 150 + (i % 2) * 90
 		local lava = part(world, "LavaPool", Vector3.new(34, 1.2, 34), Vector3.new(x, 0.4, z), Color3.fromRGB(255, 110, 20), Enum.Material.Neon, false)
